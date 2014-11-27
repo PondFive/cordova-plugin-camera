@@ -17,6 +17,9 @@
  under the License.
  */
 
+#import "ELCAlbumPickerController.h"
+#import "ELCImagePickerController.h"
+#import "ELCAssetTablePicker.h"
 #import "CDVCamera.h"
 #import "CDVJpegHeaderWriter.h"
 #import <Cordova/NSArray+Comparisons.h>
@@ -98,7 +101,6 @@ static NSSet* org_apache_cordova_validArrowDirections;
         return;
     }
 
-    bool allowEdit = [[arguments objectAtIndex:7] boolValue];
     NSNumber* targetWidth = [arguments objectAtIndex:3];
     NSNumber* targetHeight = [arguments objectAtIndex:4];
     NSNumber* mediaValue = [arguments objectAtIndex:6];
@@ -115,13 +117,19 @@ static NSSet* org_apache_cordova_validArrowDirections;
         [[[self pickerController] popoverController] setDelegate:nil];
         [[self pickerController] setPopoverController:nil];
     }
+    
+    ELCAlbumPickerController *albumController = [[ELCAlbumPickerController alloc] init];
 
-    CDVCameraPicker* cameraPicker = [[CDVCameraPicker alloc] init];
+    CDVCameraPicker* cameraPicker = [[CDVCameraPicker alloc] initWithRootViewController:albumController];
     self.pickerController = cameraPicker;
+    albumController.parent = cameraPicker;
+    
+    cameraPicker.maximumImagesCount = -1;
+    cameraPicker.returnsOriginalImage = 1;
+    cameraPicker.imagePickerDelegate = self;
 
     cameraPicker.delegate = self;
     cameraPicker.sourceType = sourceType;
-    cameraPicker.allowsEditing = allowEdit; // THIS IS ALL IT TAKES FOR CROPPING - jm
     cameraPicker.callbackId = callbackId;
     cameraPicker.targetSize = targetSize;
     cameraPicker.cropToSize = NO;
@@ -139,12 +147,7 @@ static NSSet* org_apache_cordova_validArrowDirections;
     cameraPicker.returnType = ([arguments objectAtIndex:1]) ? [[arguments objectAtIndex:1] intValue] : DestinationTypeFileUri;
 
     if (sourceType == UIImagePickerControllerSourceTypeCamera) {
-        // We only allow taking pictures (no video) in this API.
         cameraPicker.mediaTypes = [NSArray arrayWithObjects:(NSString*)kUTTypeImage, nil];
-
-        // We can only set the camera device if we're actually using the camera.
-        NSNumber* cameraDirection = [command argumentAtIndex:11 withDefault:[NSNumber numberWithInteger:UIImagePickerControllerCameraDeviceRear]];
-        cameraPicker.cameraDevice = (UIImagePickerControllerCameraDevice)[cameraDirection intValue];
     } else if (mediaType == MediaTypeAll) {
         cameraPicker.mediaTypes = [UIImagePickerController availableMediaTypesForSourceType:sourceType];
     } else {
@@ -201,7 +204,7 @@ static NSSet* org_apache_cordova_validArrowDirections;
 {
     if([navigationController isKindOfClass:[UIImagePickerController class]]){
         UIImagePickerController * cameraPicker = (UIImagePickerController*)navigationController;
-        
+
         if(![cameraPicker.mediaTypes containsObject:(NSString*) kUTTypeImage]){
             [viewController.navigationItem setTitle:NSLocalizedString(@"Videos title", nil)];
         }
@@ -259,10 +262,11 @@ static NSSet* org_apache_cordova_validArrowDirections;
     self.hasPendingOperation = NO;
 }
 
-- (void)imagePickerController:(UIImagePickerController*)picker didFinishPickingMediaWithInfo:(NSDictionary*)info
+- (void)elcImagePickerController:(ELCImagePickerController*)picker didFinishPickingMediaWithInfo:(NSArray*)info
 {
     CDVCameraPicker* cameraPicker = (CDVCameraPicker*)picker;
 
+    // close popover if supported
     if (cameraPicker.popoverSupported && (cameraPicker.popoverController != nil)) {
         [cameraPicker.popoverController dismissPopoverAnimated:YES];
         cameraPicker.popoverController.delegate = nil;
@@ -272,103 +276,17 @@ static NSSet* org_apache_cordova_validArrowDirections;
     }
 
     CDVPluginResult* result = nil;
+    
+    // fetch all selected images into string array
+    NSMutableArray *resultStrings = [[NSMutableArray alloc] init];
 
-    NSString* mediaType = [info objectForKey:UIImagePickerControllerMediaType];
-    // IMAGE TYPE
-    if ([mediaType isEqualToString:(NSString*)kUTTypeImage]) {
-        if (cameraPicker.returnType == DestinationTypeNativeUri) {
-            NSString* nativeUri = [(NSURL*)[info objectForKey:UIImagePickerControllerReferenceURL] absoluteString];
-            result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:nativeUri];
-        } else {
-            // get the image
-            UIImage* image = nil;
-            if (cameraPicker.allowsEditing && [info objectForKey:UIImagePickerControllerEditedImage]) {
-                image = [info objectForKey:UIImagePickerControllerEditedImage];
-            } else {
-                image = [info objectForKey:UIImagePickerControllerOriginalImage];
-            }
-
-            if (cameraPicker.correctOrientation) {
-                image = [self imageCorrectedForCaptureOrientation:image];
-            }
-
-            UIImage* scaledImage = nil;
-
-            if ((cameraPicker.targetSize.width > 0) && (cameraPicker.targetSize.height > 0)) {
-                // if cropToSize, resize image and crop to target size, otherwise resize to fit target without cropping
-                if (cameraPicker.cropToSize) {
-                    scaledImage = [self imageByScalingAndCroppingForSize:image toSize:cameraPicker.targetSize];
-                } else {
-                    scaledImage = [self imageByScalingNotCroppingForSize:image toSize:cameraPicker.targetSize];
-                }
-            }
-
-            NSData* data = nil;
-            // returnedImage is the image that is returned to caller and (optionally) saved to photo album
-            UIImage* returnedImage = (scaledImage == nil ? image : scaledImage);
-
-            if (cameraPicker.encodingType == EncodingTypePNG) {
-                data = UIImagePNGRepresentation(returnedImage);
-            } else if ((cameraPicker.allowsEditing==false) && (cameraPicker.targetSize.width <= 0) && (cameraPicker.targetSize.height <= 0) && (cameraPicker.correctOrientation==false)){
-                // use image unedited as requested , don't resize
-                data = UIImageJPEGRepresentation(returnedImage, 1.0);
-            } else {
-                data = UIImageJPEGRepresentation(returnedImage, cameraPicker.quality / 100.0f);
-                
-                if (cameraPicker.usesGeolocation) {
-                    NSDictionary *controllerMetadata = [info objectForKey:@"UIImagePickerControllerMediaMetadata"];
-                    if (controllerMetadata) {
-                        self.data = data;
-                        self.metadata = [[NSMutableDictionary alloc] init];
-                        
-                        NSMutableDictionary *EXIFDictionary = [[controllerMetadata objectForKey:(NSString *)kCGImagePropertyExifDictionary]mutableCopy];
-                        if (EXIFDictionary)	[self.metadata setObject:EXIFDictionary forKey:(NSString *)kCGImagePropertyExifDictionary];
-                        
-                        if (IsAtLeastiOSVersion(@"8.0")) {
-                            [[self locationManager] performSelector:NSSelectorFromString(@"requestWhenInUseAuthorization") withObject:nil afterDelay:0];
-                        }
-                        [[self locationManager] startUpdatingLocation];
-                        return;
-                    }
-                }
-            }
-            
-            if (cameraPicker.saveToPhotoAlbum) {
-                ALAssetsLibrary *library = [ALAssetsLibrary new];
-                [library writeImageToSavedPhotosAlbum:returnedImage.CGImage orientation:(ALAssetOrientation)(returnedImage.imageOrientation) completionBlock:nil];
-            }
-
-            if (cameraPicker.returnType == DestinationTypeFileUri) {
-                // write to temp directory and return URI
-                // get the temp directory path
-                NSString* docsPath = [NSTemporaryDirectory()stringByStandardizingPath];
-                NSError* err = nil;
-                NSFileManager* fileMgr = [[NSFileManager alloc] init]; // recommended by apple (vs [NSFileManager defaultManager]) to be threadsafe
-                // generate unique file name
-                NSString* filePath;
-
-                int i = 1;
-                do {
-                    filePath = [NSString stringWithFormat:@"%@/%@%03d.%@", docsPath, CDV_PHOTO_PREFIX, i++, cameraPicker.encodingType == EncodingTypePNG ? @"png":@"jpg"];
-                } while ([fileMgr fileExistsAtPath:filePath]);
-
-                // save file
-                if (![data writeToFile:filePath options:NSAtomicWrite error:&err]) {
-                    result = [CDVPluginResult resultWithStatus:CDVCommandStatus_IO_EXCEPTION messageAsString:[err localizedDescription]];
-                } else {
-                    result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:[[NSURL fileURLWithPath:filePath] absoluteString]];
-                }
-            } else {
-                result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:[data base64EncodedString]];
-            }
-        }
-    }
-    // NOT IMAGE TYPE (MOVIE)
-    else {
-        NSString* moviePath = [[info objectForKey:UIImagePickerControllerMediaURL] absoluteString];
-        result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:moviePath];
+    for (NSDictionary *dict in info) {
+        NSString* assetPath = [(NSURL*)[dict objectForKey:UIImagePickerControllerReferenceURL] absoluteString];
+        [resultStrings addObject:assetPath];
     }
 
+    // and also return an array
+    result = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsArray:resultStrings];
     if (result) {
         [self.commandDelegate sendPluginResult:result callbackId:cameraPicker.callbackId];
     }
@@ -378,14 +296,14 @@ static NSSet* org_apache_cordova_validArrowDirections;
 }
 
 // older api calls newer didFinishPickingMediaWithInfo
-- (void)imagePickerController:(UIImagePickerController*)picker didFinishPickingImage:(UIImage*)image editingInfo:(NSDictionary*)editingInfo
+- (void)elcImagePickerController:(ELCImagePickerController*)picker didFinishPickingImage:(UIImage*)image editingInfo:(NSDictionary*)editingInfo
 {
     NSDictionary* imageInfo = [NSDictionary dictionaryWithObject:image forKey:UIImagePickerControllerOriginalImage];
 
-    [self imagePickerController:picker didFinishPickingMediaWithInfo:imageInfo];
+    [self elcImagePickerController:picker didFinishPickingMediaWithInfo:imageInfo];
 }
 
-- (void)imagePickerControllerDidCancel:(UIImagePickerController*)picker
+- (void)elcImagePickerControllerDidCancel:(ELCImagePickerController*)picker
 {
     CDVCameraPicker* cameraPicker = (CDVCameraPicker*)picker;
 
@@ -397,7 +315,7 @@ static NSSet* org_apache_cordova_validArrowDirections;
     } else {
         result = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"has no access to assets"];   // error callback expects string ATM
     }
-    
+
     [self.commandDelegate sendPluginResult:result callbackId:cameraPicker.callbackId];
 
     self.hasPendingOperation = NO;
@@ -535,7 +453,7 @@ static NSSet* org_apache_cordova_validArrowDirections;
     // If the pixels are floats, it causes a white line in iOS8 and probably other versions too
     scaledSize.width = (int)scaledSize.width;
     scaledSize.height = (int)scaledSize.height;
-    
+
     UIGraphicsBeginImageContext(scaledSize); // this will resize
 
     [sourceImage drawInRect:CGRectMake(0, 0, scaledSize.width, scaledSize.height)];
@@ -551,15 +469,15 @@ static NSSet* org_apache_cordova_validArrowDirections;
 }
 
 - (CLLocationManager *)locationManager {
-    
+
 	if (locationManager != nil) {
 		return locationManager;
 	}
-    
+
 	locationManager = [[CLLocationManager alloc] init];
 	[locationManager setDesiredAccuracy:kCLLocationAccuracyNearestTenMeters];
 	[locationManager setDelegate:self];
-    
+
 	return locationManager;
 }
 
@@ -568,12 +486,12 @@ static NSSet* org_apache_cordova_validArrowDirections;
 	if (locationManager != nil) {
 		[self.locationManager stopUpdatingLocation];
 		self.locationManager = nil;
-        
+
 		NSMutableDictionary *GPSDictionary = [[NSMutableDictionary dictionary] init];
-        
+
 		CLLocationDegrees latitude  = newLocation.coordinate.latitude;
 		CLLocationDegrees longitude = newLocation.coordinate.longitude;
-        
+
 		// latitude
 		if (latitude < 0.0) {
 			latitude = latitude * -1.0f;
@@ -582,7 +500,7 @@ static NSSet* org_apache_cordova_validArrowDirections;
 			[GPSDictionary setObject:@"N" forKey:(NSString*)kCGImagePropertyGPSLatitudeRef];
 		}
 		[GPSDictionary setObject:[NSNumber numberWithFloat:latitude] forKey:(NSString*)kCGImagePropertyGPSLatitude];
-        
+
 		// longitude
 		if (longitude < 0.0) {
 			longitude = longitude * -1.0f;
@@ -592,7 +510,7 @@ static NSSet* org_apache_cordova_validArrowDirections;
 			[GPSDictionary setObject:@"E" forKey:(NSString*)kCGImagePropertyGPSLongitudeRef];
 		}
 		[GPSDictionary setObject:[NSNumber numberWithFloat:longitude] forKey:(NSString*)kCGImagePropertyGPSLongitude];
-        
+
 		// altitude
         CGFloat altitude = newLocation.altitude;
         if (!isnan(altitude)){
@@ -604,7 +522,7 @@ static NSSet* org_apache_cordova_validArrowDirections;
 			}
 			[GPSDictionary setObject:[NSNumber numberWithFloat:altitude] forKey:(NSString *)kCGImagePropertyGPSAltitude];
         }
-        
+
         // Time and date
         NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
         [formatter setDateFormat:@"HH:mm:ss.SSSSSS"];
@@ -612,7 +530,7 @@ static NSSet* org_apache_cordova_validArrowDirections;
         [GPSDictionary setObject:[formatter stringFromDate:newLocation.timestamp] forKey:(NSString *)kCGImagePropertyGPSTimeStamp];
         [formatter setDateFormat:@"yyyy:MM:dd"];
         [GPSDictionary setObject:[formatter stringFromDate:newLocation.timestamp] forKey:(NSString *)kCGImagePropertyGPSDateStamp];
-        
+
 		[self.metadata setObject:GPSDictionary forKey:(NSString *)kCGImagePropertyGPSDictionary];
  		[self imagePickerControllerReturnImageResult];
 	}
@@ -622,7 +540,7 @@ static NSSet* org_apache_cordova_validArrowDirections;
 	if (locationManager != nil) {
 		[self.locationManager stopUpdatingLocation];
 		self.locationManager = nil;
-        
+
 		[self imagePickerControllerReturnImageResult];
 	}
 }
@@ -630,24 +548,24 @@ static NSSet* org_apache_cordova_validArrowDirections;
 - (void)imagePickerControllerReturnImageResult
 {
     CDVPluginResult* result = nil;
-    
+
     if (self.metadata) {
-        CGImageSourceRef sourceImage = CGImageSourceCreateWithData((__bridge CFDataRef)self.data, NULL);
+        CGImageSourceRef sourceImage = CGImageSourceCreateWithData((__bridge_retained CFDataRef)self.data, NULL);
         CFStringRef sourceType = CGImageSourceGetType(sourceImage);
-        
+
         CGImageDestinationRef destinationImage = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)self.data, sourceType, 1, NULL);
         CGImageDestinationAddImageFromSource(destinationImage, sourceImage, 0, (__bridge CFDictionaryRef)self.metadata);
         CGImageDestinationFinalize(destinationImage);
-        
+
         CFRelease(sourceImage);
         CFRelease(destinationImage);
     }
-    
+
     if (self.pickerController.saveToPhotoAlbum) {
         ALAssetsLibrary *library = [ALAssetsLibrary new];
         [library writeImageDataToSavedPhotosAlbum:self.data metadata:self.metadata completionBlock:nil];
     }
-    
+
     if (self.pickerController.returnType == DestinationTypeFileUri) {
         // write to temp directory and return URI
         // get the temp directory path
@@ -656,12 +574,12 @@ static NSSet* org_apache_cordova_validArrowDirections;
         NSFileManager* fileMgr = [[NSFileManager alloc] init]; // recommended by apple (vs [NSFileManager defaultManager]) to be threadsafe
         // generate unique file name
         NSString* filePath;
-        
+
         int i = 1;
         do {
             filePath = [NSString stringWithFormat:@"%@/%@%03d.%@", docsPath, CDV_PHOTO_PREFIX, i++, self.pickerController.encodingType == EncodingTypePNG ? @"png":@"jpg"];
         } while ([fileMgr fileExistsAtPath:filePath]);
-        
+
         // save file
         if (![self.data writeToFile:filePath options:NSAtomicWrite error:&err]) {
             result = [CDVPluginResult resultWithStatus:CDVCommandStatus_IO_EXCEPTION messageAsString:[err localizedDescription]];
@@ -676,11 +594,11 @@ static NSSet* org_apache_cordova_validArrowDirections;
     if (result) {
         [self.commandDelegate sendPluginResult:result callbackId:self.pickerController.callbackId];
     }
-    
+
     if (result) {
         [self.commandDelegate sendPluginResult:result callbackId:self.pickerController.callbackId];
     }
-    
+
     self.hasPendingOperation = NO;
     self.pickerController = nil;
     self.data = nil;
@@ -710,13 +628,19 @@ static NSSet* org_apache_cordova_validArrowDirections;
 - (UIViewController*)childViewControllerForStatusBarHidden {
     return nil;
 }
-    
+
+- (id)initWithRootViewController:(UIViewController *)rootViewController
+{
+    self = [super initWithRootViewController:rootViewController];
+    return self;
+}
+
 - (void)viewWillAppear:(BOOL)animated {
     SEL sel = NSSelectorFromString(@"setNeedsStatusBarAppearanceUpdate");
     if ([self respondsToSelector:sel]) {
         [self performSelector:sel withObject:nil afterDelay:0];
     }
-    
+
     [super viewWillAppear:animated];
 }
 

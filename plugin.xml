@@ -50,12 +50,12 @@
             <feature name="Camera">
                 <param name="firefoxos-package" value="Camera" />
             </feature>
-        </config-file>                                         
-        
+        </config-file>
+
         <js-module src="src/firefoxos/CameraProxy.js" name="CameraProxy">
           <runs />
         </js-module>
-    </platform>  
+    </platform>
 
     <!-- android -->
     <platform name="android">
@@ -98,7 +98,7 @@
         </js-module>
 
      </platform>
-     
+
      <!-- ubuntu -->
      <platform name="ubuntu">
          <config-file target="config.xml" parent="/*">
@@ -138,17 +138,34 @@
          <header-file src="src/ios/CDVJpegHeaderWriter.h" />
          <source-file src="src/ios/CDVJpegHeaderWriter.m" />
          <header-file src="src/ios/CDVExif.h" />
+         <header-file src="src/ios/ELCImagePicker/ELCAlbumPickerController.h" />
+         <source-file src="src/ios/ELCImagePicker/ELCAlbumPickerController.m" />
+         <source-file src="src/ios/ELCImagePicker/ELCAsset.m" />
+         <header-file src="src/ios/ELCImagePicker/ELCAsset.h" />
+         <header-file src="src/ios/ELCImagePicker/ELCAssetCell.h" />
+         <source-file src="src/ios/ELCImagePicker/ELCAssetCell.m" />
+         <header-file src="src/ios/ELCImagePicker/ELCAssetPickerFilterDelegate.h" />
+         <header-file src="src/ios/ELCImagePicker/ELCAssetSelectionDelegate.h" />
+         <header-file src="src/ios/ELCImagePicker/ELCAssetTablePicker.h" />
+         <source-file src="src/ios/ELCImagePicker/ELCAssetTablePicker.m" />
+         <header-file src="src/ios/ELCImagePicker/ELCConsole.h" />
+         <source-file src="src/ios/ELCImagePicker/ELCConsole.m" />
+         <header-file src="src/ios/ELCImagePicker/ELCImagePickerController.h" />
+         <source-file src="src/ios/ELCImagePicker/ELCImagePickerController.m" />
+         <header-file src="src/ios/ELCImagePicker/ELCImagePickerHeader.h" />
+         <header-file src="src/ios/ELCImagePicker/ELCOverlayImageView.h" />
+         <source-file src="src/ios/ELCImagePicker/ELCOverlayImageView.m" />
          <framework src="ImageIO.framework" weak="true" />
          <framework src="CoreLocation.framework" />
          <framework src="CoreGraphics.framework" />
          <framework src="AssetsLibrary.framework" />
          <framework src="MobileCoreServices.framework" />
          <framework src="CoreGraphics.framework" />
-         
+
          <config-file target="*-Info.plist" parent="NSLocationWhenInUseUsageDescription">
              <string></string>
          </config-file>
-                  
+
      </platform>
 
     <!-- blackberry10 -->

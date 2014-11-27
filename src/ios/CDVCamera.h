@@ -21,6 +21,9 @@
 #import <CoreLocation/CoreLocation.h>
 #import <CoreLocation/CLLocationManager.h>
 #import <Cordova/CDVPlugin.h>
+#import "ELCAlbumPickerController.h"
+#import "ELCImagePickerController.h"
+#import "ELCAssetTablePicker.h"
 
 enum CDVDestinationType {
     DestinationTypeDataUrl = 0,
@@ -42,12 +45,13 @@ enum CDVMediaType {
 };
 typedef NSUInteger CDVMediaType;
 
-@interface CDVCameraPicker : UIImagePickerController
+@interface CDVCameraPicker : ELCImagePickerController
 {}
 
 @property (assign) NSInteger quality;
 @property (copy)   NSString* callbackId;
 @property (copy)   NSString* postUrl;
+@property (assign) UIImagePickerControllerSourceType sourceType;
 @property (nonatomic) enum CDVDestinationType returnType;
 @property (nonatomic) enum CDVEncodingType encodingType;
 @property (strong) UIPopoverController* popoverController;
@@ -63,7 +67,8 @@ typedef NSUInteger CDVMediaType;
 
 // ======================================================================= //
 
-@interface CDVCamera : CDVPlugin <UIImagePickerControllerDelegate,
+@interface CDVCamera : CDVPlugin <ELCImagePickerControllerDelegate,UIScrollViewDelegate,
+                        UIImagePickerControllerDelegate,
                        UINavigationControllerDelegate,
                        UIPopoverControllerDelegate,
                        CLLocationManagerDelegate>
@@ -88,9 +93,9 @@ typedef NSUInteger CDVMediaType;
 - (void)cleanup:(CDVInvokedUrlCommand*)command;
 - (void)repositionPopover:(CDVInvokedUrlCommand*)command;
 
-- (void)imagePickerController:(UIImagePickerController*)picker didFinishPickingMediaWithInfo:(NSDictionary*)info;
-- (void)imagePickerController:(UIImagePickerController*)picker didFinishPickingImage:(UIImage*)image editingInfo:(NSDictionary*)editingInfo;
-- (void)imagePickerControllerDidCancel:(UIImagePickerController*)picker;
+- (void)elcImagePickerController:(ELCImagePickerController*)picker didFinishPickingMediaWithInfo:(NSDictionary*)info;
+- (void)elcImagePickerController:(ELCImagePickerController*)picker didFinishPickingImage:(UIImage*)image editingInfo:(NSDictionary*)editingInfo;
+- (void)elcImagePickerControllerDidCancel:(ELCImagePickerController*)picker;
 - (void)navigationController:(UINavigationController *)navigationController willShowViewController:(UIViewController *)viewController animated:(BOOL)animated;
 - (UIImage*)imageByScalingAndCroppingForSize:(UIImage*)anImage toSize:(CGSize)targetSize;
 - (UIImage*)imageByScalingNotCroppingForSize:(UIImage*)anImage toSize:(CGSize)frameSize;
