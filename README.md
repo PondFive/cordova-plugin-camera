@@ -19,4 +19,6 @@
 
 # org.apache.cordova.camera
 
+- This fork makes it possible to pick 1080p HD videos from your iOS phone's gallery
+
 Plugin documentation: [doc/index.md](doc/index.md)
